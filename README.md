@@ -1,3 +1,3 @@
 # unidns
 
-Rudamentary async DNS client in Python
+Rudimentary async DNS client in Python
