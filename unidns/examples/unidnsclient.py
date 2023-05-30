@@ -2,10 +2,10 @@ from unidns.client import DNSClient
 from asysocks.unicomm.common.target import UniTarget, UniProto
 import asyncio
 
-async def amain(host, port, domain, record_type):
+async def amain(host, port, domain, record_type, recursion = True):
     target = UniTarget(host, port, UniProto.CLIENT_TCP)
     client = DNSClient(target)
-    response, error = await client.query(domain, record_type)
+    response, error = await client.query(domain, record_type, recursion)
     if error is not None:
         print("Error: {}".format(error))
     else:
@@ -22,8 +22,10 @@ def main():
                         help="The domain name for the DNS query")
     parser.add_argument("-t", "--type", type=str, choices=["A", "AAAA", "CNAME", "MX", "NS", "PTR", "SRV", "TXT"],
                         default="A", help="The DNS record type for the query (default: A)")
+    parser.add_argument("-r", "--recursion", action="store_true", help="Enable DNS recursion")
+    
     args = parser.parse_args()
-    asyncio.run(amain(args.address, args.port, args.domain, args.type))
+    asyncio.run(amain(args.address, args.port, args.domain, args.type, args.recursion))
 
 if __name__ == '__main__':
     main()

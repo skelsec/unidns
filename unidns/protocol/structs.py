@@ -4,6 +4,7 @@ import io
 import asyncio
 import ipaddress
 import socket
+from typing import List
 
 class DNSResponseCode(enum.Enum):
 	NOERR = 0 #No error condition
@@ -118,19 +119,19 @@ class DNSResponse(enum.Enum):
 
 class DNSPacket():
 	def __init__(self, proto = socket.SOCK_STREAM):
-		self.proto     = proto
-		self.PACKETLEN = None #this is for TCP
-		self.TransactionID = None
-		self.QR = None
-		self.Opcode = None
-		self.FLAGS = None
-		self.Rcode = None
-		self.QDCOUNT = None
-		self.ANCOUNT = None
-		self.NSCOUNT = None
-		self.ARCOUNT = None
+		self.proto: socket.SocketKind = proto
+		self.PACKETLEN: int = None #this is for TCP
+		self.TransactionID: bytes = None
+		self.QR: DNSResponse = None
+		self.Opcode: DNSOpcode = None
+		self.FLAGS: DNSFlags = None
+		self.Rcode: DNSResponseCode = None
+		self.QDCOUNT: int = None
+		self.ANCOUNT: int = None
+		self.NSCOUNT: int = None
+		self.ARCOUNT: int = None
 
-		self.Questions = []
+		self.Questions: List[DNSQuestion] = []
 		self.Answers   = []
 		self.Authorities = []
 		self.Additionals = []
@@ -342,12 +343,12 @@ class DNSQuestion():
 
 class DNSOPT():
 	def __init__(self):
-		self.Code   = None
-		self.Length = None
-		self.Value  = None
+		self.Code:int   = None
+		self.Length:int = None
+		self.Value:bytes  = None
 
 		#temp variable!
-		self.size = None
+		self.size:int = None
 
 	@staticmethod
 	def from_bytes(buff):
@@ -367,15 +368,15 @@ class DNSOPTResource():
 	#https://tools.ietf.org/html/rfc6891 Section 6.1.2.
 	#Comments from the author: <REDACTED PROFANITIES> Seriosuly why did you re-invent the format????
 	def __init__(self):
-		self.NAME     = None
-		self.TYPE     = None
-		self.UDPSIZE  = None
-		self.EXTRCODE = None
-		self.VERSION  = None
-		self.DO       = None
-		self.Z        = None
-		self.RDLENGTH = None
-		self.RDATA    = None
+		self.NAME:DNSName     = None
+		self.TYPE:DNSType     = None
+		self.UDPSIZE:int  = None
+		self.EXTRCODE:int = None
+		self.VERSION:int  = None
+		self.DO:bool       = None
+		self.Z:int        = None
+		self.RDLENGTH:int = None
+		self.RDATA:bytes    = None
 
 		self.options = []
 
@@ -436,13 +437,13 @@ class DNSOPTResource():
 
 class DNSResource():
 	def __init__(self):
-		self.NAME     = None
-		self.TYPE     = None
-		self.CLASS    = None
-		self.CFLUSH   = None
-		self.TTL      = None
-		self.RDLENGTH = None
-		self.RDATA    = None
+		self.NAME:DNSName     = None
+		self.TYPE:DNSType     = None
+		self.CLASS:DNSClass    = None
+		self.CFLUSH:bool   = None
+		self.TTL:int      = None
+		self.RDLENGTH:int = None
+		self.RDATA:bytes    = None
 
 	#this method will parse the Resource object until RDATA, which will be parsed by the object inheriting it
 	def parse_header(self, buff):
@@ -510,7 +511,7 @@ class DNSResource():
 class DNSAResource(DNSResource):
 	def __init__(self):
 		DNSResource.__init__(self)
-		self.ipaddress = None
+		self.ipaddress:ipaddress.IPv4Address = None
 
 	@staticmethod
 	def from_bytes(bbuff):
@@ -548,7 +549,7 @@ class DNSAResource(DNSResource):
 class DNSAAAAResource(DNSResource):
 	def __init__(self):	
 		DNSResource.__init__(self)
-		self.ipaddress = None
+		self.ipaddress:ipaddress.IPv6Address = None
 
 	@staticmethod
 	def from_bytes(bbuff):
@@ -585,7 +586,7 @@ class DNSAAAAResource(DNSResource):
 class DNSPTRResource(DNSResource):
 	def __init__(self):	
 		DNSResource.__init__(self)
-		self.domainname = None
+		self.domainname:DNSName = None
 
 	@staticmethod
 	def from_bytes(bbuff):
