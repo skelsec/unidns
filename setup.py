@@ -35,8 +35,8 @@ setup(
 	zip_safe = True,
 	#
 	# license="LICENSE.txt",
-	description="",
-	long_description="",
+	description="Rudimentary async DNS client in Python",
+	long_description="Rudimentary async DNS client in Python",
 
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.6',
