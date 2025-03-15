@@ -1,4 +1,5 @@
 from unidns.protocol.structs import *
+from unidns.common.settings import DNSSettings
 from unidns.network.packetizer import DNSPacketizer
 from asysocks.unicomm.common.target import UniTarget
 from asysocks.unicomm.client import UniClient
@@ -8,21 +9,35 @@ import os
 import ipaddress
 
 class DNSClient:
-	def __init__(self, target:UniTarget, query_timeout:float = 0.5, connection_keepalive_time:float = 10):
+	def __init__(self, target:UniTarget, settings:DNSSettings = None):
 		self.target = target
-		self.connection_keepalive_time = connection_keepalive_time
-		self.query_timeout = query_timeout
+		if settings is None:
+			settings = DNSSettings()
+		self.connection_keepalive_time = settings.connection_keepalive_time
+		self.query_timeout = settings.query_timeout
 		self.cache = {}
 		self.TID_lookup:Dict[bytes, asyncio.Future] = {}
 		self.connection = None
 		self.__keepalive_monitor_task = None
 		self.__server_in_task = None
+	
+	async def __aenter__(self):
+		await self.__create_connection()
+		return self
+	
+	async def __aexit__(self, exc_type, exc_val, exc_tb):
+		if self.connection is not None:
+			await self.connection.close()
+		self.connection = None
+		if self.__keepalive_monitor_task is not None:
+			self.__keepalive_monitor_task.cancel()
+		if self.__server_in_task is not None:
+			self.__server_in_task.cancel()
 
 	async def __keepalive_monitor(self):
 		while True:
 			await asyncio.sleep(self.connection_keepalive_time)
 			if self.connection is not None and len(self.TID_lookup) == 0:
-				print("Closing connection")
 				await self.connection.close()
 				self.connection = None
 
@@ -30,11 +45,14 @@ class DNSClient:
 		try:
 			while self.connection is not None:
 				async for packetdata in self.connection.read():
-					packet = DNSPacket.from_bytes(packetdata)
-					if packet.TransactionID not in self.TID_lookup:
-						print("Unknown TID")
-						continue
-					self.TID_lookup[packet.TransactionID].set_result(packet)
+					try:
+						packet = DNSPacket.from_bytes(packetdata)
+						if packet.TransactionID not in self.TID_lookup:
+							print("Unknown TID")
+							continue
+						self.TID_lookup[packet.TransactionID].set_result(packet)
+					except Exception as e:
+						print("Error parsing packet:", e)
 		finally:
 			for tid in self.TID_lookup:
 				self.TID_lookup[tid].cancel()

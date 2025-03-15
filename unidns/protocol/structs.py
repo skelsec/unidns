@@ -25,6 +25,7 @@ class DNSResponseCode(enum.Enum):
 	RESERVED15 = 15
 
 class DNSType(enum.Enum):
+	UNKNOWN    = 0 #not in RFC, used for internal purposes when dns packet is damaged
 	A          = 1 #a host address (IPv4)
 	NS         = 2 #an authoritative name server
 	MD         = 3 #a mail destination (Obsolete - use MX)
@@ -769,7 +770,8 @@ class DNSName():
 			t += len(label).to_bytes(1, byteorder = 'big', signed = False)
 			t += label.encode()
 
-		t += b'\x00'
+		if self.name.endswith('.') is False:
+			t += b'\x00'
 		return t
 
 	def __repr__(self):
