@@ -1,12 +1,14 @@
 from unidns.protocol.structs import *
 from unidns.common.settings import DNSSettings
 from unidns.network.packetizer import DNSPacketizer
-from asysocks.unicomm.common.target import UniTarget
+from asysocks.unicomm.common.target import UniTarget, UniProto
 from asysocks.unicomm.client import UniClient
 from typing import Dict
 import asyncio
 import os
 import ipaddress
+import socket
+
 
 class DNSClient:
 	def __init__(self, target:UniTarget, settings:DNSSettings = None):
@@ -17,70 +19,100 @@ class DNSClient:
 		self.query_timeout = settings.query_timeout
 		self.cache = {}
 		self.TID_lookup:Dict[bytes, asyncio.Future] = {}
+		self.TID_lookup_packet:Dict[bytes, bytes] = {}
 		self.connection = None
-		self.__keepalive_monitor_task = None
 		self.__server_in_task = None
+
 	
 	async def __aenter__(self):
-		await self.__create_connection()
 		return self
 	
 	async def __aexit__(self, exc_type, exc_val, exc_tb):
 		if self.connection is not None:
-			await self.connection.close()
+			if asyncio.iscoroutine(self.connection.close):
+				await self.connection.close()
+			else:
+				self.connection.close()
 		self.connection = None
-		if self.__keepalive_monitor_task is not None:
-			self.__keepalive_monitor_task.cancel()
 		if self.__server_in_task is not None:
 			self.__server_in_task.cancel()
+		for tid in self.TID_lookup:
+			self.TID_lookup[tid].cancel()
+		self.TID_lookup = {}
 
-	async def __keepalive_monitor(self):
-		while True:
-			await asyncio.sleep(self.connection_keepalive_time)
-			if self.connection is not None and len(self.TID_lookup) == 0:
-				await self.connection.close()
-				self.connection = None
-
-	async def __handle_server_in(self):
+	async def __handle_server_in_udp(self):
 		try:
-			while self.connection is not None:
-				async for packetdata in self.connection.read():
-					try:
-						packet = DNSPacket.from_bytes(packetdata)
-						if packet.TransactionID not in self.TID_lookup:
-							print("Unknown TID")
-							continue
-						self.TID_lookup[packet.TransactionID].set_result(packet)
-					except Exception as e:
-						print("Error parsing packet:", e)
+			async for res in self.connection.read(with_addr = True):
+				if res is None:
+					break
+				packetdata, addr = res
+				if packetdata is None:
+					break
+				
+				try:
+					packet = DNSPacket.from_bytes(packetdata)
+					await self.__process_packet(packet)
+				except Exception as e:
+					print("Error parsing packet:", e)
 		finally:
 			for tid in self.TID_lookup:
 				self.TID_lookup[tid].cancel()
 			try:
-				await self.connection.close()
+				if asyncio.iscoroutine(self.connection.close):
+					await self.connection.close()
+				else:
+					self.connection.close()
 			except:
 				pass
 			self.connection = None
+
+	async def __handle_server_in_tcp(self):
+		try:
+			async for packetdata in self.connection.read():
+				if packetdata is None:
+					break
+				packet = DNSPacket.from_bytes(packetdata)
+				await self.__process_packet(packet)
+		finally:
+			for tid in self.TID_lookup:
+				self.TID_lookup[tid].cancel()
+			if self.connection is not None:
+				await self.connection.close()
+			self.connection = None
+
+	async def __process_packet(self, packet:DNSPacket):
+		if packet.TransactionID not in self.TID_lookup:
+			#print("Unknown TID")
+			return
+		if packet.TransactionID in self.TID_lookup_packet:
+			cachedata = self.TID_lookup_packet[packet.TransactionID]
+			self.cache[cachedata] = packet
+			del self.TID_lookup_packet[packet.TransactionID]
+		self.TID_lookup[packet.TransactionID].set_result(packet)
 	
 	async def __server_request(self, question: DNSQuestion, with_recursion:bool = True):
 		try:
-			if self.connection is None:
-				_, err = await self.__create_connection()
-				if err is not None:
-					return None, None, err
-
-			packet = DNSPacket()
+			packet = DNSPacket(proto=socket.SOCK_DGRAM if self.target.protocol == UniProto.CLIENT_UDP else socket.SOCK_STREAM)
 			packet.TransactionID = b'\x00\x00'
 			packet.QR = DNSResponse.REQUEST
 			packet.Rcode = DNSResponseCode.NOERR
 			packet.FLAGS = DNSFlags.RD if with_recursion else DNSFlags(0)
 			packet.Opcode = DNSOpcode.QUERY
 			packet.Questions.append(question)
-			if packet.to_bytes() in self.cache:
-				return self.cache[packet.to_bytes()], None, None
-			packet.TransactionID = os.urandom(2)
+			cache_lookup_bytes = packet.to_bytes()
+			if cache_lookup_bytes in self.cache:
+				answer_future = asyncio.Future()
+				answer_future.set_result(self.cache[cache_lookup_bytes])
+				return answer_future, None, None
+			tid = os.urandom(2)
+			self.TID_lookup_packet[tid] = cache_lookup_bytes
+			packet.TransactionID = tid
 			answer_future = asyncio.Future()
-			self.TID_lookup[packet.TransactionID] = answer_future
+			self.TID_lookup[tid] = answer_future
+			if self.connection is None:
+				_, err = await self.__create_connection()
+				if err is not None:
+					return None, None, err
 			await self.connection.write(packet.to_bytes())
 			return answer_future, packet.TransactionID, None
 		except Exception as e:
@@ -88,22 +120,16 @@ class DNSClient:
 
 	async def __create_connection(self):
 		try:
-			for future in self.TID_lookup.values():
-				future.cancel()
-			self.TID_lookup = {}
-			self.connection = None
 			packetizer = DNSPacketizer()
 			client = UniClient(self.target, packetizer)
 			self.connection = await client.connect()
-			self.__keepalive_monitor_task = asyncio.create_task(self.__keepalive_monitor())
-			self.__server_in_task = asyncio.create_task(self.__handle_server_in())
+			if self.target.protocol == UniProto.CLIENT_TCP:
+				self.__server_in_task = asyncio.create_task(self.__handle_server_in_tcp())
+			else:
+				self.__server_in_task = asyncio.create_task(self.__handle_server_in_udp())
 			return True, None
 		except Exception as e:
 			return None, e
-	
-	async def run(self):
-		# no actual need to call this, but you can check the connection
-		return await self.__create_connection()
 
 	async def query(self, name, qtype:str, with_recursion:bool = True):
 		qtype = qtype.upper()
@@ -186,3 +212,40 @@ class DNSClient:
 		finally:
 			if tid is not None and tid in self.TID_lookup:
 				del self.TID_lookup[tid]
+
+if __name__ == "__main__":
+	
+
+	async def main():
+		for protocol in [UniProto.CLIENT_UDP, UniProto.CLIENT_TCP]:
+			client = DNSClient(UniTarget("8.8.8.8", 53, protocol=protocol))
+			res = await client.query("google.com", "A")
+			print(res)
+			await asyncio.sleep(10)
+			res = await client.query("google.com", "A")
+			print(res)
+			res = await client.query("index.hu", "A")
+			print(res)
+			await asyncio.sleep(10)
+			res = await client.query("index.hu", "A")
+			print(res)
+			await asyncio.sleep(10)
+			res = await client.query("444.hu", "A")
+			print(res)
+			await asyncio.sleep(10)
+			res = await client.query("444.hu", "A")
+
+		for protocol in [UniProto.CLIENT_UDP, UniProto.CLIENT_TCP]:
+			client = DNSClient(UniTarget("8.8.8.8", 53, protocol=protocol))
+			res = await client.query("google.com", "A")
+			print(res)
+			res = await client.query("google.com", "A")
+			print(res)
+			res = await client.query("index.hu", "A")
+			print(res)
+			res = await client.query("index.hu", "A")
+			print(res)
+			res = await client.query("444.hu", "A")
+			print(res)
+			res = await client.query("444.hu", "A")
+	asyncio.run(main())
