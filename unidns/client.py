@@ -213,6 +213,28 @@ class DNSClient:
 			if tid is not None and tid in self.TID_lookup:
 				del self.TID_lookup[tid]
 
+	async def query_SOA(self, hostname:str, with_recursion:bool = True):
+		tid = None
+		try:
+			question = DNSQuestion()
+			question.QNAME = DNSName(str(hostname))
+			question.QTYPE = DNSType.SOA
+			answer_future, tid, err = await self.__server_request(question, with_recursion=with_recursion)
+			if err is not None:
+				return None, err
+			res = await asyncio.wait_for(answer_future, self.query_timeout)
+			if res.Rcode != DNSResponseCode.NOERR:
+				return None, Exception("DNS error: {}".format(res.Rcode))
+			for answer in res.Answers:
+				if answer.TYPE == DNSType.SOA:
+					return answer, None
+			return None, Exception("No matching record found in response")
+		except Exception as e:
+			return None, e
+		finally:
+			if tid is not None and tid in self.TID_lookup:
+				del self.TID_lookup[tid]
+
 if __name__ == "__main__":
 	
 

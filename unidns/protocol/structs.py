@@ -667,6 +667,36 @@ class DNSSRVResource(DNSResource):
 		t += 'Target: %s\r\n' % str(self.Target)
 		return t
 
+class DNSSOAResource(DNSResource):
+	def __init__(self):
+		DNSResource.__init__(self)
+		self.MNAME = None
+		self.RNAME = None
+		self.SERIAL = None
+		self.REFRESH = None
+		self.RETRY = None
+		self.EXPIRE = None
+		self.MINIMUM = None
+		
+	@staticmethod
+	def from_bytes(bbuff):
+		return DNSSOAResource.from_buffer(io.BytesIO(bbuff))
+
+	@staticmethod
+	def from_buffer(buff):
+		res = DNSSOAResource()
+		res.parse_header(buff)
+		res.MNAME = DNSName.from_buffer(buff)
+		res.RNAME = DNSName.from_buffer(buff)
+		res.SERIAL = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		res.REFRESH = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		res.RETRY = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		res.EXPIRE = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		res.MINIMUM = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		return res
+		
+		
+
 class DNSResourceParser:
 	@staticmethod
 	def from_bytes(bbuff):
@@ -697,6 +727,8 @@ class DNSResourceParser:
 				rsc = DNSPTRResource.from_buffer(buff)
 			elif restype == DNSType.SRV:
 				rsc = DNSSRVResource.from_buffer(buff)
+			elif restype == DNSType.SOA:
+				rsc = DNSSOAResource.from_buffer(buff)
 
 			#catch-all for not fully implemented or unknown types
 			#feel free to expand the if-else statement above...
