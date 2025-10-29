@@ -46,7 +46,7 @@ setup(
 		"Operating System :: OS Independent",
 	),
 	install_requires=[
-		'asysocks>=0.2.7',
+		'asysocks>=0.2.18',
 	],
 	entry_points={
 		'console_scripts': [

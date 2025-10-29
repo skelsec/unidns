@@ -29,7 +29,7 @@ class DNSClient:
 	
 	async def __aexit__(self, exc_type, exc_val, exc_tb):
 		if self.connection is not None:
-			if asyncio.iscoroutine(self.connection.close):
+			if asyncio.iscoroutinefunction(self.connection.close) is True:
 				await self.connection.close()
 			else:
 				self.connection.close()
@@ -58,7 +58,7 @@ class DNSClient:
 			for tid in self.TID_lookup:
 				self.TID_lookup[tid].cancel()
 			try:
-				if asyncio.iscoroutine(self.connection.close):
+				if asyncio.iscoroutinefunction(self.connection.close):
 					await self.connection.close()
 				else:
 					self.connection.close()
